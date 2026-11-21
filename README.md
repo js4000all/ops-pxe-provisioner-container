@@ -4,6 +4,10 @@ Windows + Docker Desktop 上で Pixiecore の PXE/ProxyDHCP が利用できる�
 
 **現時点では PoC です。** Docker Desktop の host networking は Linux ホストと同等ではなく、物理 LAN からの DHCP/PXE ブロードキャスト到達と応答は実機検証が必要です。
 
+## 実機検証記録
+
+Windows ネイティブの Tiny PXE Server と Docker Desktop 上の nginx を組み合わせ、Ubuntu ISO の HTTP ダウンロードまで到達しました。詳細な設定・観測結果・未解決事項は [docs/windows-tiny-pxe-poc.md](docs/windows-tiny-pxe-poc.md) を参照してください。
+
 ## サービス
 
 - `image-preparer`：Ubuntu Server の ISO を取得・SHA256 検証し、`casper/vmlinuz` と `casper/initrd` を抽出する一時実行ジョブ。通常起動されません。
