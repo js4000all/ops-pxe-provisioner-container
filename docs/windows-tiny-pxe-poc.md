@@ -28,7 +28,7 @@
 - [Tiny PXE Server — 配布アーカイブの GitHub 表示ページ](https://github.com/erwan2212/tinypxeserver/blob/main/pxesrv.zip)（**直接ダウンロード用 URL ではない**）
 - Tiny PXE Server 画面に表示されたバージョン: `1.0.0.23`
 - Docker Desktop と本リポジトリの `files`（nginx）、`image-preparer`
-- iPXE ブートローダー（使用した具体的なバイナリ名・版は未記録）
+- **実際に使用した iPXE ブートローダー:** Tiny PXE Server 配布物の `files` 内に同梱されている `ipxe-undionly.kpxe`。バイナリの個別バージョンは未記録。
 
 ## 検証時の Tiny PXE Server 画面
 
@@ -49,7 +49,14 @@
 | Boot File / Filename | 画面上は `ipxe.pxe` |
 | Filename if user-class=gPXE or iPXE | チェックあり（右欄の値は画面では空欄） |
 
-この表は**設定途中に共有されたスクリーンショットの記録**であり、ISO ダウンロードまで成功した時点の最終設定が同一だったと確認したものではない。UEFI x64 の場合に `ipxe.efi`、Legacy BIOS の場合に `undionly.kpxe` などを用いる構成は別途検討できるが、今回実際に使ったファイルは未確認。
+この表は**設定途中に共有されたスクリーンショットの記録**であり、ISO ダウンロードまで成功した時点の最終設定が同一だったと確認したものではない。成功時に使用したブートローダーのファイル名は `ipxe-undionly.kpxe` と後から確認された。スクリーンショット上の `ipxe.pxe` とは異なるため、最終的な GUI の Filename 入力値は引き続き未確認。
+
+### iPXE ブートローダーの選択
+
+- **今回の実績:** 同梱 `files/ipxe-undionly.kpxe` で Ubuntu ISO のダウンロード段階まで到達。`undionly` 系は一般に Legacy BIOS PXE のための形式であり、この結果のみから UEFI ブートの成功は主張しない。
+- **UEFI x64 の候補（未検証）:** 同梱されていると報告された `ipxe-x86_64.efi` および `ipxe-snponly-x86-64.efi`。UEFI PXE の初期起動では EFI 形式のブートローダーが必要となるため、次回 UEFI 機で個別に検証する。
+
+実際の起動モード（Legacy BIOS / UEFI）を明示的に確認した記録はない。UEFI 候補についてはファイル名からの用途推定であり、起動成功の実績ではない。
 
 ## Compose 側と iPXE の接続方法
 
@@ -86,14 +93,14 @@ Tiny PXE Server は PXE/ProxyDHCP と初期ブートローダーの TFTP 配布�
 - **到達済み:** Tiny PXE Server を使ったネットワークブートにより、Ubuntu ISO の HTTP ダウンロードまで進行。
 - **未完了:** インストーラ起動の完走・自動インストール・OS インストールの成功。
 - **発生したエラー:** `No space left`。ISO ダウンロード過程またはその後の一時領域確保で発生した可能性があるが、正確な発生箇所と不足した領域は未調査。
-- **未確認:** 対象 PC の搭載 RAM、実際に利用した ISO の版・サイズ、iPXE バイナリ、起動引数の最終値、Tiny PXE Server の最終設定、Windows Firewall 設定。
+- **未確認:** 対象 PC の搭載 RAM、実際に利用した ISO の版・サイズ、iPXE バイナリの個別バージョンと対象 PC のファームウェア起動モード、起動引数の最終値、Tiny PXE Server の最終設定、Windows Firewall 設定。
 
 今回の結果から、Windows ネイティブの PXE サーバーと Docker Desktop 上の nginx を組み合わせて ISO ダウンロード段階まで到達できることを確認した。ただし、Docker Desktop 上で pixiecore 自体が使えないと一般化するものではない。
 
 ## 今後の課題（本記録では対処しない）
 
 - `No space left` の発生元と必要な RAM/一時領域の調査
-- 実際に使用した iPXE ブートローダーと Tiny PXE Server の設定値の固定
+- iPXE ブートローダーの起動モード別選択と Tiny PXE Server の最終設定値の固定（UEFI 候補の実機検証を含む）
 - `boot.ipxe` の Git 管理と管理 PC の IP を埋め込まない生成方法の検討
 - Windows ネイティブの PXE サーバーの起動・停止・配布物管理の自動化
 - インストーラ完走、および既存 autoinstall 構成との統合検証
