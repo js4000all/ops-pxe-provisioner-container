@@ -22,3 +22,13 @@ services:
       - /assets/boot/initrd
       - --dhcp-no-bind
       - "--cmdline=${KERNEL_CMDLINE:-ip=dhcp}"
+
+  image-preparer:
+    build: ./image-preparer
+    profiles: [tools]
+    volumes:
+      - ./assets:/assets
+    environment:
+      ISO_URL: ${ISO_URL:-}
+      ISO_SHA256: ${ISO_SHA256:-}
+    entrypoint: ["/usr/local/bin/prepare"]

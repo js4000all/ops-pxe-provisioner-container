@@ -2,89 +2,83 @@
 
 Windows + Docker Desktop 上で Pixiecore の PXE/ProxyDHCP が利用できるかを確認するための最小 Compose 構成です。Linux Docker Engine でも利用できます。
 
-**現時点では PoC です。** Docker Desktop の host networking は Linux ホストと同等ではなく、物理 LAN からの DHCP/PXE ブロードキャスト到達と応答は実機検証が必要です。動作確認済みとは扱いません。
+**現時点では PoC です。** Docker Desktop の host networking は Linux ホストと同等ではなく、物理 LAN からの DHCP/PXE ブロードキャスト到達と応答は実機検証が必要です。
 
-## 構成
+## サービス
 
-- `files`: nginx。ホストの TCP `8080` (変更可) で `assets/` を HTTP 配信します。
-- `pixiecore`: `network_mode: host` で動かす ProxyDHCP/PXE サーバ。`pxe` profile を付け、通常の `up` では起動させません。
-- `assets/`: Git 管理しないカーネル、initrd、ISO、autoinstall 関連ファイルの置き場所。
+- `image-preparer`：Ubuntu Server の ISO を取得・SHA256 検証し、`casper/vmlinuz` と `casper/initrd` を抽出する一時実行ジョブ。通常起動されません。
+- `files`：nginx。ホスト TCP `8080`（変更可）で `assets/` を HTTP 配信します。
+- `pixiecore`：`network_mode: host` の PXE/ProxyDHCP サーバ。明示起動のみ。
+- `assets/`：ISO と抽出済みファイル。Git 管理対象外で、コンテナ間で共有します。
 
-既存 LAN の DHCP サーバを置き換える構成ではありません。Pixiecore の `--dhcp-no-bind` を使用し、通常の DHCP サーバとの共存を試みます。
+`image-preparer` と `files` は Windows/Linux 共通で動作する想定です。Pixiecore の Windows 動作は別途実機検証が必要です。
 
-## 前提条件
+## 初期準備
 
-- Windows 11 + Docker Desktop 4.34 以降（Linux コンテナモード）。Docker Desktop の **Settings → Resources → Network → Enable host networking** を有効化。設定名や表示位置は Docker Desktop のバージョンにより異なる場合があります。
-- または Linux + Docker Engine / Compose plugin。
-- 対象 PXE クライアントと管理 PC が同一ブロードキャストドメインにいること。Wi-Fi のクライアント分離や VLAN に注意してください。
-- 既存の DHCP サーバはそのまま利用します。検証時には Windows Defender Firewall 等の影響も確認してください。
-
-## 準備
-
-リポジトリ直下で `.env.example` を `.env` にコピーします。
-
-PowerShell:
+Windows PowerShell:
 
 ```powershell
+git clone https://github.com/js4000all/ops-pxe-provisioner-container.git
+cd ops-pxe-provisioner-container
 Copy-Item .env.example .env
-New-Item -ItemType Directory -Force assets/boot, assets/iso
 ```
 
-対象ディストリビューションの PXE 用 kernel と initrd を以下に配置します。名称は固定です。
+Linux では `cp .env.example .env` を使用してください。
+
+`.env` の `ISO_URL` に公式 Ubuntu Server ISO の URL を設定し、`KERNEL_CMDLINE` 内の `192.168.1.10` を管理 PC の実際の LAN アドレスへ変更します。テンプレートの ISO バージョンは例です。取得先に存在するバージョンを指定してください。
+
+`ISO_SHA256` は任意です。空なら `ISO_URL` と同じ配布ディレクトリの `SHA256SUMS` を HTTPS で取得して検証します。署名確認まで必要な環境では、信頼できる経路で得たハッシュを `ISO_SHA256` に固定してください。
+
+## ISO を準備
+
+```shell
+docker compose run --build --rm image-preparer prepare
+docker compose run --rm image-preparer status
+```
+
+既存の ISO と抽出ファイルが対象ハッシュと一致すれば `prepare` は再利用します。ISO のみ検証済みで抽出ファイルが欠けている場合、再ダウンロードせず抽出します。
+
+明示的に再取得する場合:
+
+```shell
+docker compose run --rm image-preparer refresh
+```
+
+出力:
 
 ```text
 assets/
-├── boot/
-│   ├── vmlinuz
-│   └── initrd
-└── iso/
-    └── ubuntu-live-server.iso  # 必要な場合。ファイル名は任意
+├── iso/
+│   └── ubuntu-live-server.iso
+└── boot/
+    ├── vmlinuz
+    ├── initrd
+    └── source.sha256
 ```
 
-Ubuntu Server の live installer を使う場合、対応する ISO 内の `casper/vmlinuz` と `casper/initrd` を抽出します。ISO を `assets/iso/` に置き、`.env` の `KERNEL_CMDLINE` を変更してください。例えば管理 PC の LAN IP が `192.168.1.10` なら:
+`status` は ISO の SHA256 と抽出済みファイルの存在および抽出元ハッシュの一致を検査します。**抽出ファイル自体の内容ハッシュまでは再検証しません。** 検証失敗時は非ゼロ終了します。
 
-```dotenv
-KERNEL_CMDLINE=ip=dhcp url=http://192.168.1.10:8080/iso/ubuntu-live-server.iso
-```
+ダウンロード・検証・抽出の間は一時ディレクトリを使うため、それらの途中で失敗しても公開済みファイルは置き換えません。ただし最終配置の複数ファイル更新は完全にはアトミックではありません。**`refresh` の前に Pixiecore を停止し、進行中の PXE ブートがない状態で実行してください。** 同時に複数の prepare/refresh を実行しないでください。
 
-ISO ファイル名、カーネル起動引数、インストーラへの追加設定は実際の ISO と既存プロビジョニング環境に合わせて調整します。**127.0.0.1、localhost、host.docker.internal は PXE クライアントから参照する URL として使わないでください。**
+## ファイル配信・PXE 動作確認
 
-## 起動と検証
-
-まず静的ファイル配信のみ起動します。
-
-```powershell
+```shell
 docker compose config -q
 docker compose up -d files
-```
-
-対象ネットワーク上の別端末から `http://<管理PCのLAN IP>:8080/iso/<ISOファイル名>` を取得できることを確認してください。PowerShell では、管理 PC 自身から次のように確認できます。
-
-```powershell
-Invoke-WebRequest http://localhost:8080/boot/vmlinuz -Method Head
-```
-
-HTTP が確認できたら PXE サービスを起動します（ファイルを用意してから実行）。
-
-```powershell
 docker compose --profile pxe up -d pixiecore
 docker compose logs -f pixiecore
 ```
 
-対象 PC でネットワークブートを実行し、ProxyDHCP 応答、iPXE への移行、kernel/initrd の取得、ISO 取得を段階的に確認します。失敗した場合は **Windows ホスト上のパケットキャプチャ** と Pixiecore ログを照合し、ブロードキャストが届かないのか、応答が返らないのかを切り分けます。
+PXE クライアントから `http://<管理PCのLAN IP>:8080/iso/ubuntu-live-server.iso` に到達できる必要があります。Windows Firewall 等も確認してください。`localhost` や `host.docker.internal` は PXE クライアント用 URL に使いません。
+
+Windows + Docker Desktop 4.34 以降では host networking を有効にしてください。Docker Desktop の host networking はレイヤー 4 の機能であり、物理 NIC のブロードキャストをコンテナで扱える保証はありません。LAN 側の DHCP/PXE 応答は実機で検証してください。既存 DHCP サーバを置き換えるものではなく、Pixiecore には `--dhcp-no-bind` を渡しています。
 
 停止:
 
-```powershell
+```shell
 docker compose --profile pxe down
 ```
 
-## 制約と次段階
+現段階では既存の Ansible / WoL / CLI / Web UI は含みません。
 
-Docker Desktop の host networking は TCP/UDP に対するレイヤー 4 の機能です。物理 NIC とコンテナが同一の L2 ネットワークに参加するわけではなく、PXE/ProxyDHCP で必要なブロードキャスト挙動は保証されません。Windows で起動できたことだけでは成功と判定しません。
-
-この PoC は既存のプロビジョニング CLI、Ansible、WoL、Web UI を移植していません。まず Pixiecore の動作可否を確定し、問題がある場合のみ Windows ネイティブの PXE 機能や別の Linux ネットワーク実行環境を検討します。
-
-参考:
-- [Pixiecore (upstream)](https://github.com/danderson/netboot/tree/main/pixiecore)
-- [Docker host network driver](https://docs.docker.com/engine/network/drivers/host/)
+参考: [Pixiecore](https://github.com/danderson/netboot/tree/main/pixiecore) / [Docker host networking](https://docs.docker.com/engine/network/drivers/host/)
