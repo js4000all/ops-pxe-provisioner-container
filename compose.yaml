@@ -1,0 +1,34 @@
+name: ops-pxe-provisioner
+
+services:
+  files:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    volumes:
+      - ./assets:/usr/share/nginx/html:ro
+
+  pixiecore:
+    image: pixiecore/pixiecore:master
+    profiles: [pxe]
+    network_mode: host
+    restart: "no"
+    volumes:
+      - ./assets:/assets:ro
+    command:
+      - boot
+      - /assets/boot/vmlinuz
+      - /assets/boot/initrd
+      - --dhcp-no-bind
+      - "--cmdline=${KERNEL_CMDLINE:-ip=dhcp}"
+
+  image-preparer:
+    build: ./image-preparer
+    profiles: [tools]
+    volumes:
+      - ./assets:/assets
+    environment:
+      ISO_URL: ${ISO_URL:-}
+      ISO_SHA256: ${ISO_SHA256:-}
+    entrypoint: ["/usr/local/bin/prepare"]
